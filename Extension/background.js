@@ -166,7 +166,9 @@ let searchState = {
         'tabActive': !![],
         'keywordLang': 'both',
         'viRatio': 0x7,
-        'enRatio': 0x3
+        'enRatio': 0x3,
+        'autoDailyCheckIn': ![],
+        'autoReadToEarn': ![]
     }
 };
 async function loadSettings() {
@@ -567,7 +569,7 @@ async function performSearch() {
             setTimeout(() => performSearch(), -0x1b * 0x117 + 0x2f5 + 0x1e60);
             return;
         }
-        stopSearch(!![]);
+        completeSearchSequence();
         return;
     }
     const _0x37bd3e = getRandomKeyword();
@@ -1273,6 +1275,34 @@ async function startSearch() {
     }
     backupSearchState(), broadcastStatus(), performSearch();
 }
+
+async function completeSearchSequence() {
+    try {
+        clearSearchBackup();
+        await disableMobileUA();
+        if (searchState['settings']['autoDailyCheckIn'] && searchState['isRunning'] && !searchState['abortSignal']) {
+            console['log']('[BingAutoSearch] Auto Check In enabled: running after search...');
+            try {
+                await doDailyCheckIn(!![]);
+            } catch (_0x35278f) {
+                console['error']('[BingAutoSearch] Auto Check In failed:', _0x35278f);
+                broadcastError('Check In lỗi: ' + (_0x35278f?.['message'] || String(_0x35278f)));
+            }
+        }
+        if (searchState['settings']['autoReadToEarn'] && searchState['isRunning'] && !searchState['abortSignal']) {
+            console['log']('[BingAutoSearch] Auto Read to Earn enabled: running after Check In...');
+            try {
+                await doReadToEarn(!![]);
+            } catch (_0x351935) {
+                console['error']('[BingAutoSearch] Auto Read to Earn failed:', _0x351935);
+                broadcastError('Read to Earn lỗi: ' + (_0x351935?.['message'] || String(_0x351935)));
+            }
+        }
+    } finally {
+        if (searchState['isRunning']) stopSearch(!![]);
+    }
+}
+
 async function stopSearch(_0x311376 = ![], _0x2c24b3 = ![]) {
     searchState['isRunning'] = ![], searchState['abortSignal'] = !_0x311376, stopKeepAlive(), clearSearchBackup();
     try {
@@ -1742,6 +1772,15 @@ let readToEarnState = {
     'status': 'idle',
     'error': ''
 };
+let dailyCheckInState = {
+    'isRunning': ![],
+    'status': 'idle',
+    'gainedPoints': 0x0,
+    'oldBalance': 0x0,
+    'newBalance': 0x0,
+    'typeTried': null,
+    'error': ''
+};
 
 function randomHex(_0x2e8c72) {
     const _0x55b820 = new Uint8Array(_0x2e8c72);
@@ -1768,6 +1807,13 @@ function broadcastReadToEarnStatus() {
     })['catch'](() => {});
 }
 
+function broadcastDailyCheckInStatus() {
+    chrome['runtime']['sendMessage']({
+        'type': 'DAILY_CHECK_IN_STATUS',
+        'data': dailyCheckInState
+    })['catch'](() => {});
+}
+
 function notifyReadToEarn(_0x448fc2, _0x1efac8) {
     try {
         if (!chrome['notifications']) return;
@@ -1779,6 +1825,20 @@ function notifyReadToEarn(_0x448fc2, _0x1efac8) {
         });
     } catch (_0x4bcb0f) {
         console['warn']('[BingAutoSearch] Could not show Read to Earn notification:', _0x4bcb0f);
+    }
+}
+
+function notifyDailyCheckIn(_0x4d4e74, _0x4e67ec) {
+    try {
+        if (!chrome['notifications']) return;
+        chrome['notifications']['create']({
+            'type': 'basic',
+            'iconUrl': 'icons/icon128.png',
+            'title': _0x4d4e74,
+            'message': _0x4e67ec
+        });
+    } catch (_0x2af79d) {
+        console['warn']('[BingAutoSearch] Could not show Daily Check-In notification:', _0x2af79d);
     }
 }
 
@@ -1982,10 +2042,113 @@ async function submitReadToEarnActivity(_0x2c747b, _0x43d5ef) {
     });
 }
 
-async function doReadToEarn() {
+function createActivityUuid() {
+    if (crypto['randomUUID']) return crypto['randomUUID']();
+    const _0x5c0881 = crypto['getRandomValues'](new Uint8Array(0x10));
+    _0x5c0881[0x6] = _0x5c0881[0x6] & 0xf | 0x40;
+    _0x5c0881[0x8] = _0x5c0881[0x8] & 0x3f | 0x80;
+    const _0x3dc603 = Array['from'](_0x5c0881, _0x3478ca => _0x3478ca['toString'](0x10)['padStart'](0x2, '0'))['join']('');
+    return _0x3dc603['slice'](0x0, 0x8) + '-' + _0x3dc603['slice'](0x8, 0xc) + '-' + _0x3dc603['slice'](0xc, 0x10) + '-' + _0x3dc603['slice'](0x10, 0x14) + '-' + _0x3dc603['slice'](0x14);
+}
+
+async function submitDailyCheckInActivity(_0x3d695c, _0x4c45a3, _0x2347bf) {
+    return await readToEarnFetchJson(READ_TO_EARN_API_ROOT + '/me/activities', {
+        'method': 'POST',
+        'headers': {
+            'Authorization': 'Bearer ' + _0x3d695c,
+            'Content-Type': 'application/json',
+            'X-Rewards-Country': _0x4c45a3,
+            'X-Rewards-Language': 'en',
+            'X-Rewards-ismobile': 'true'
+        },
+        'body': JSON['stringify']({
+            'id': createActivityUuid(),
+            'amount': 0x1,
+            'type': _0x2347bf,
+            'attributes': {
+                'offerid': 'Gamification_Sapphire_DailyCheckIn'
+            },
+            'country': _0x4c45a3
+        })
+    });
+}
+
+async function doDailyCheckIn(_0x3983d7 = ![]) {
+    if (dailyCheckInState['isRunning']) throw new Error('DAILY_CHECK_IN_RUNNING');
     if (readToEarnState['isRunning']) throw new Error('READ_TO_EARN_RUNNING');
-    if (searchState['isRunning']) throw new Error('SEARCH_RUNNING');
-    await loadSettings();
+    if (searchState['isRunning'] && !_0x3983d7) throw new Error('SEARCH_RUNNING');
+    if (!_0x3983d7) await loadSettings();
+    dailyCheckInState = {
+        'isRunning': !![],
+        'status': 'auth',
+        'gainedPoints': 0x0,
+        'oldBalance': 0x0,
+        'newBalance': 0x0,
+        'typeTried': null,
+        'error': ''
+    };
+    startKeepAlive();
+    broadcastDailyCheckInStatus();
+    try {
+        await enableReadToEarnHeaders();
+        let _0x385a1a = await requestReadToEarnAccessToken(),
+            _0x14d814;
+        try {
+            _0x14d814 = await getReadToEarnProfile(_0x385a1a);
+        } catch (_0x47967a) {
+            if (_0x47967a?.['status'] !== 0x191) throw _0x47967a;
+            await clearReadToEarnAccessToken();
+            _0x385a1a = await requestReadToEarnAccessToken();
+            _0x14d814 = await getReadToEarnProfile(_0x385a1a);
+        }
+        const _0x14d14c = _0x14d814['country'] || 'us',
+            _0x2b3e7f = Number(_0x14d814['balance'] || 0x0);
+        dailyCheckInState['oldBalance'] = _0x2b3e7f;
+        dailyCheckInState['newBalance'] = _0x2b3e7f;
+        console['log']('[BingAutoSearch] Daily Check-In starting | country=' + _0x14d14c + ' | balance=' + _0x2b3e7f);
+        for (const _0x46e570 of [0x65, 0x67]) {
+            dailyCheckInState['status'] = 'submitting';
+            dailyCheckInState['typeTried'] = _0x46e570;
+            broadcastDailyCheckInStatus();
+            const _0x18089d = await submitDailyCheckInActivity(_0x385a1a, _0x14d14c, _0x46e570),
+                _0x5242f5 = Number(_0x18089d?.['response']?.['balance'] ?? _0x2b3e7f),
+                _0x511977 = _0x5242f5 - _0x2b3e7f;
+            console['log']('[BingAutoSearch] Daily Check-In response | type=' + _0x46e570 + ' | gained=' + _0x511977 + ' | balance=' + _0x5242f5);
+            dailyCheckInState['newBalance'] = _0x5242f5;
+            if (_0x511977 > 0x0) {
+                dailyCheckInState['gainedPoints'] = _0x511977;
+                dailyCheckInState['status'] = 'done';
+                dailyCheckInState['isRunning'] = ![];
+                notifyDailyCheckIn('Daily Check-In completed', 'Gained +' + _0x511977 + ' points.');
+                broadcastDailyCheckInStatus();
+                return dailyCheckInState;
+            }
+        }
+        dailyCheckInState['status'] = 'done';
+        dailyCheckInState['isRunning'] = ![];
+        console['log']('[BingAutoSearch] Daily Check-In done with no points gained');
+        notifyDailyCheckIn('Daily Check-In completed', 'No points gained. It may already be completed today.');
+        broadcastDailyCheckInStatus();
+        return dailyCheckInState;
+    } catch (_0x372dec) {
+        dailyCheckInState['status'] = 'error';
+        dailyCheckInState['isRunning'] = ![];
+        dailyCheckInState['error'] = _0x372dec?.['message'] || String(_0x372dec);
+        console['error']('[BingAutoSearch] Daily Check-In failed:', _0x372dec);
+        notifyDailyCheckIn('Daily Check-In failed', dailyCheckInState['error']);
+        broadcastDailyCheckInStatus();
+        throw _0x372dec;
+    } finally {
+        await disableReadToEarnHeaders();
+        stopKeepAlive();
+    }
+}
+
+async function doReadToEarn(_0x26046e = ![]) {
+    if (readToEarnState['isRunning']) throw new Error('READ_TO_EARN_RUNNING');
+    if (dailyCheckInState['isRunning']) throw new Error('DAILY_CHECK_IN_RUNNING');
+    if (searchState['isRunning'] && !_0x26046e) throw new Error('SEARCH_RUNNING');
+    if (!_0x26046e) await loadSettings();
     readToEarnState = {
         'isRunning': !![],
         'currentArticle': 0x0,
@@ -2166,10 +2329,25 @@ chrome['runtime']['onMessage']['addListener']((_0x2466e7, _0x34d6e4, _0x62d50b) 
                 'error': _0x51200a?.['message'] || String(_0x51200a)
             }));
             return !![];
+        case 'DO_DAILY_CHECK_IN':
+            doDailyCheckIn()['then'](_0x3cd26f => _0x62d50b({
+                'success': !![],
+                'data': _0x3cd26f
+            }))['catch'](_0x2a3c54 => _0x62d50b({
+                'success': ![],
+                'error': _0x2a3c54?.['message'] || String(_0x2a3c54)
+            }));
+            return !![];
         case 'GET_READ_TO_EARN_STATUS':
             _0x62d50b({
                 'success': !![],
                 'data': readToEarnState
+            });
+            break;
+        case 'GET_DAILY_CHECK_IN_STATUS':
+            _0x62d50b({
+                'success': !![],
+                'data': dailyCheckInState
             });
             break;
         case 'CHECK_LICENSE':

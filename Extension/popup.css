@@ -521,6 +521,19 @@ body {
     box-shadow: 0 2px 10px rgba(198, 40, 40, 0.3);
 }
 
+/* App task colors */
+.opt-btn.active[data-checkin="on"],
+.opt-btn.active[data-read-earn="on"] {
+    background: linear-gradient(135deg, #0078d4, #2aa8ff);
+    box-shadow: 0 2px 10px rgba(0, 120, 212, 0.3);
+}
+
+.opt-btn.active[data-checkin="off"],
+.opt-btn.active[data-read-earn="off"] {
+    background: linear-gradient(135deg, #455a64, #78909c);
+    box-shadow: 0 2px 10px rgba(69, 90, 100, 0.3);
+}
+
 /* Farm Mode colors */
 .opt-btn.active[data-farm="on"] {
     background: linear-gradient(135deg, #b71c1c, #e53935);
@@ -795,6 +808,18 @@ body {
     background: rgba(127, 186, 0, 0.14);
     border-color: rgba(127, 186, 0, 0.45);
     color: #a6d84a;
+}
+
+.btn-check-in {
+    background: rgba(0, 120, 212, 0.08);
+    border-color: rgba(0, 120, 212, 0.28);
+    color: var(--accent-blue);
+}
+
+.btn-check-in:hover {
+    background: rgba(0, 120, 212, 0.14);
+    border-color: rgba(0, 120, 212, 0.45);
+    color: #5db7ff;
 }
 
 .btn-secondary:active {

@@ -356,6 +356,8 @@ const a0_0xb48054 = a0_0x491b;
             'searchStyle': _0x5a2f7b,
             'tabActive': _0xf1a7fb['rDUgD'](_0x438104, 'active'),
             'autoDailySet': _0x31482b === 'on',
+            'autoDailyCheckIn': document.querySelector('[data-checkin="on"]')?.classList.contains('active') || ![],
+            'autoReadToEarn': document.querySelector('[data-read-earn="on"]')?.classList.contains('active') || ![],
             'farmMode': _0xf1a7fb['eFPsM'](_0x10fcc1, 'on'),
             'keywordLang': _0x301989,
             'viRatio': parseInt(_0x38b502['value']) || 0x7,
@@ -773,7 +775,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     chrome.runtime.onMessage.addListener(message => {
-        if (message?.type === 'READ_TO_EARN_STATUS') setReadToEarnStatus(message.data, true);
+        if (message?.type === 'READ_TO_EARN_STATUS') {
+            setReadToEarnStatus(message.data, true);
+        } else if (message?.type === 'DAILY_CHECK_IN_STATUS' && message.data?.isRunning) {
+            readToEarnBtn.disabled = true;
+        }
     });
 
     readToEarnBtn.addEventListener('click', () => {
@@ -790,10 +796,169 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? 'Dang search, hay dung truoc.'
                     : error === 'READ_TO_EARN_RUNNING'
                         ? 'Read to Earn dang chay.'
-                        : 'Khong chay duoc Read to Earn: ' + error;
+                        : error === 'DAILY_CHECK_IN_RUNNING'
+                            ? 'Check In dang chay.'
+                            : 'Khong chay duoc Read to Earn: ' + error;
                 showReadToEarnToast(message, 'error');
             }
         });
+    });
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const checkInBtn = document.getElementById('checkInBtn');
+    if (!checkInBtn) return;
+    const label = checkInBtn.querySelector('span');
+    const defaultText = label ? label.textContent : 'Check In';
+
+    function showCheckInToast(message, type = 'success') {
+        const currentToast = document.querySelector('.toast');
+        if (currentToast) currentToast.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + type;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 2200);
+    }
+
+    function setCheckInStatus(state, notify = false) {
+        if (!state) return;
+        if (state.isRunning) {
+            checkInBtn.disabled = true;
+            if (label) {
+                label.textContent = state.status === 'auth'
+                    ? 'Dang lay token...'
+                    : 'Check In type ' + (state.typeTried || '');
+            }
+            return;
+        }
+
+        checkInBtn.disabled = false;
+        if (label) label.textContent = defaultText;
+
+        if (!notify) return;
+
+        if (state.status === 'done') {
+            showCheckInToast('Check In xong: +' + (state.gainedPoints || 0) + ' diem');
+        } else if (state.status === 'error') {
+            showCheckInToast('Check In loi: ' + (state.error || 'unknown'), 'error');
+        }
+    }
+
+    chrome.runtime.sendMessage({ type: 'GET_DAILY_CHECK_IN_STATUS' }, response => {
+        if (response?.success) setCheckInStatus(response.data);
+    });
+
+    chrome.runtime.onMessage.addListener(message => {
+        if (message?.type === 'DAILY_CHECK_IN_STATUS') {
+            setCheckInStatus(message.data, true);
+        } else if (message?.type === 'READ_TO_EARN_STATUS' && message.data?.isRunning) {
+            checkInBtn.disabled = true;
+        } else if (message?.type === 'STATUS_UPDATE' && message.data?.isRunning) {
+            checkInBtn.disabled = true;
+        }
+    });
+
+    checkInBtn.addEventListener('click', () => {
+        checkInBtn.disabled = true;
+        if (label) label.textContent = 'Dang bat dau...';
+
+        chrome.runtime.sendMessage({ type: 'DO_DAILY_CHECK_IN' }, response => {
+            if (chrome.runtime.lastError || !response?.success) {
+                const error = response?.error || chrome.runtime.lastError?.message || 'DAILY_CHECK_IN_FAILED';
+                checkInBtn.disabled = false;
+                if (label) label.textContent = defaultText;
+
+                const message = error === 'SEARCH_RUNNING'
+                    ? 'Dang search, hay dung truoc.'
+                    : error === 'READ_TO_EARN_RUNNING'
+                        ? 'Read to Earn dang chay.'
+                        : error === 'DAILY_CHECK_IN_RUNNING'
+                            ? 'Check In dang chay.'
+                            : 'Khong chay duoc Check In: ' + error;
+                showCheckInToast(message, 'error');
+            }
+        });
+    });
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const checkInButtons = Array.from(document.querySelectorAll('[data-checkin]'));
+    const readEarnButtons = Array.from(document.querySelectorAll('[data-read-earn]'));
+    if (!checkInButtons.length && !readEarnButtons.length) return;
+
+    function showAutoTaskToast(message, type = 'success') {
+        const currentToast = document.querySelector('.toast');
+        if (currentToast) currentToast.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + type;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 1800);
+    }
+
+    function setGroup(buttons, value, key, save = false) {
+        buttons.forEach(button => {
+            button.classList.toggle('active', button.dataset[key] === value);
+        });
+
+        if (save) {
+            const settings = {};
+            if (key === 'checkin') settings.autoDailyCheckIn = value === 'on';
+            if (key === 'readEarn') settings.autoReadToEarn = value === 'on';
+            chrome.runtime.sendMessage({
+                type: 'UPDATE_SETTINGS',
+                settings
+            });
+        }
+    }
+
+    function setFromSettings(settings) {
+        if (!settings) return;
+        setGroup(checkInButtons, settings.autoDailyCheckIn ? 'on' : 'off', 'checkin');
+        setGroup(readEarnButtons, settings.autoReadToEarn ? 'on' : 'off', 'readEarn');
+    }
+
+    checkInButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const value = button.dataset.checkin;
+            setGroup(checkInButtons, value, 'checkin', true);
+            showAutoTaskToast(value === 'on' ? 'Check In: Auto sau khi search' : 'Check In: Chạy thủ công');
+        });
+    });
+
+    readEarnButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const value = button.dataset.readEarn;
+            setGroup(readEarnButtons, value, 'readEarn', true);
+            showAutoTaskToast(value === 'on' ? 'Read to Earn: Auto sau Check In' : 'Read to Earn: Chạy thủ công');
+        });
+    });
+
+    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, response => {
+        setFromSettings(response?.settings);
+    });
+
+    chrome.runtime.onMessage.addListener(message => {
+        if (message?.type === 'STATUS_UPDATE') {
+            setFromSettings(message.data?.settings);
+            const disabled = !!message.data?.isRunning;
+            [...checkInButtons, ...readEarnButtons].forEach(button => {
+                button.disabled = disabled;
+            });
+        }
     });
 });
 
